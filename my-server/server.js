@@ -3,11 +3,11 @@ const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcrypt'); // <-- ADDED for password hashing
+const bcrypt = require('bcrypt'); // <-- Kept as per your file
 
 const app = express();
 const port = 3001;
-const saltRounds = 10; // Standard cost factor for bcrypt
+const saltRounds = 10; // Kept as per your file
 
 // --- 1. Middleware ---
 app.use(cors());
@@ -47,8 +47,10 @@ const protectRoute = (req, res, next) => {
   }
 
   try {
+    // We need the full decoded token for the job check
     const decoded = jwt.verify(token, JWT_SECRET);
     req.userId = decoded.userId; 
+    req.user = decoded; // Attach the full user payload
     next(); 
   } catch (ex) {
     console.error("Invalid token:", ex.message);
@@ -125,7 +127,7 @@ app.post('/api/login', (req, res) => {
         userId: user.user_id,
         email: user.email,
         name: user.name,
-        description: user.description
+        description: user.description // This is CRITICAL for your rule
       };
       
       const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '24h' });
@@ -140,8 +142,9 @@ app.post('/api/login', (req, res) => {
 });
 
 // --- POST ENDPOINTS ---
-
-// GET /api/posts - Get all posts for the feed
+// (No changes to this section)
+// ...
+// GET /api/posts
 app.get('/api/posts', protectRoute, (req, res) => {
   const sortOrder = req.query.sort === 'oldest' ? 'ASC' : 'DESC';
 
@@ -160,7 +163,7 @@ app.get('/api/posts', protectRoute, (req, res) => {
   });
 });
 
-// POST /api/posts - Create a new post
+// POST /api/posts
 app.post('/api/posts', protectRoute, (req, res) => {
   const { content } = req.body;
   const userId = req.userId;
@@ -195,7 +198,7 @@ app.post('/api/posts', protectRoute, (req, res) => {
   });
 });
 
-// GET /api/posts/:postId/hashtags - Get hashtags for a post
+// GET /api/posts/:postId/hashtags
 app.get('/api/posts/:postId/hashtags', protectRoute, (req, res) => {
   const postId = req.params.postId;
   const query = 'SELECT hashtag FROM hashtags WHERE post_id = ?';
@@ -208,7 +211,7 @@ app.get('/api/posts/:postId/hashtags', protectRoute, (req, res) => {
   });
 });
 
-// GET /api/posts/:postId/comments - Get comments for a post
+// GET /api/posts/:postId/comments
 app.get('/api/posts/:postId/comments', protectRoute, (req, res) => {
   const postId = req.params.postId;
   const query = `
@@ -227,7 +230,7 @@ app.get('/api/posts/:postId/comments', protectRoute, (req, res) => {
   });
 });
 
-// POST /api/posts/:postId/comments - Add a comment to a post
+// POST /api/posts/:postId/comments
 app.post('/api/posts/:postId/comments', protectRoute, (req, res) => {
   const postId = req.params.postId;
   const { comment_content } = req.body;
@@ -247,21 +250,16 @@ app.post('/api/posts/:postId/comments', protectRoute, (req, res) => {
     res.status(201).json({ message: 'Comment added!', insertId: results.insertId });
   });
 });
-
+// ...
 // --- USER & PROFILE ENDPOINTS ---
-
-// GET /api/users/:userId - Get a single user's profile
-// *** FIXED for connections table ***
+// (No changes to this section)
+// ...
+// GET /api/users/:userId
 app.get('/api/users/:userId', protectRoute, (req, res) => {
   const userId = req.params.userId;
   const currentUserId = req.userId; // The person who is VIEWING
 
   const userQuery = 'SELECT user_id, name, headline, summary, description FROM users WHERE user_id = ?';
-  const connectionQuery = `
-    SELECT status
-    FROM connections
-    WHERE (connection1_id = ? AND connection2_id = ?) OR (connection1_id = ? AND connection2_id = ?)
-  `;
   
   dbConnection.query(userQuery, [userId], (err, userResults) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -269,46 +267,50 @@ app.get('/api/users/:userId', protectRoute, (req, res) => {
 
     const userProfile = userResults[0];
 
+    // Case 1: User is viewing their own profile
     if (parseInt(userId) === currentUserId) {
       userProfile.connectionStatus = 'self';
       return res.json(userProfile);
     }
+    
+    // Case 2: User is viewing someone else's profile
+    const connectionQuery = `
+      SELECT status, connection1_id
+      FROM connections
+      WHERE (connection1_id = ? AND connection2_id = ?) OR (connection1_id = ? AND connection2_id = ?)
+    `;
     
     dbConnection.query(connectionQuery, [currentUserId, userId, userId, currentUserId], (err, connectionResults) => {
       if (err) return res.status(500).json({ error: err.message });
 
       if (connectionResults.length === 0) {
         userProfile.connectionStatus = 'not_connected';
-      } else {
-        const status = connectionResults[0].status;
+        return res.json(userProfile);
+      } 
+      
+      const connection = connectionResults[0];
         
-        // This assumes 'status' is a string 'pending' or 'accepted'.
-        // If 'status' is tinyint (e.g., 0=pending, 1=accepted), this logic must change.
-        if (status === 'accepted') {
-          userProfile.connectionStatus = 'connected';
-        } else if (status === 'pending') {
-          const pendingQuery = 'SELECT connection1_id FROM connections WHERE (connection1_id = ? AND connection2_id = ?) AND status = "pending"';
-          
-          dbConnection.query(pendingQuery, [currentUserId, userId], (err, pendingResults) => {
-            if (err) return res.status(500).json({ error: err.message });
-            if (pendingResults.length > 0) {
-              userProfile.connectionStatus = 'pending_sent';
-            } else {
-              userProfile.connectionStatus = 'pending_received';
-            }
-            res.json(userProfile);
-          });
+      if (connection.status === 'accepted') {
+        userProfile.connectionStatus = 'connected';
+        return res.json(userProfile);
+      
+      } else if (connection.status === 'pending') {
+        if (connection.connection1_id === currentUserId) {
+          userProfile.connectionStatus = 'pending_sent';
+        } else {
+          userProfile.connectionStatus = 'pending_received';
         }
-      }
-      if (!userProfile.connectionStatus) {
-         res.json(userProfile);
+        return res.json(userProfile);
+      
+      } else {
+         userProfile.connectionStatus = 'not_connected';
+         return res.json(userProfile);
       }
     });
   });
 });
 
-// GET /api/users/:userId/connections - Get connection count
-// *** FIXED for connections table ***
+// GET /api/users/:userId/connections
 app.get('/api/users/:userId/connections', protectRoute, (req, res) => {
   const userId = req.params.userId;
   const query = `
@@ -321,11 +323,11 @@ app.get('/api/users/:userId/connections', protectRoute, (req, res) => {
     res.json(results[0]);
   });
 });
-
+// ...
 // --- CONNECTION ENDPOINTS ---
-
-// GET /api/connections - Get all *accepted* connections for the logged-in user
-// *** FIXED for connections table ***
+// (No changes to this section)
+// ...
+// GET /api/connections
 app.get('/api/connections', protectRoute, (req, res) => {
   const userId = req.userId;
   const query = `
@@ -341,8 +343,7 @@ app.get('/api/connections', protectRoute, (req, res) => {
   });
 });
 
-// GET /api/connections/all - Get ALL users and their connection status
-// *** FIXED for connections table ***
+// GET /api/connections/all
 app.get('/api/connections/all', protectRoute, (req, res) => {
   const userId = req.userId;
   const query = `
@@ -350,12 +351,13 @@ app.get('/api/connections/all', protectRoute, (req, res) => {
       u.user_id, 
       u.name, 
       u.headline,
-      c.status,
-      CASE WHEN c.connection1_id = ? THEN 'sent' ELSE 'received' END as request_direction
+      MAX(c.status) as status,
+      MAX(CASE WHEN c.connection1_id = ? THEN 'sent' ELSE 'received' END) as request_direction
     FROM users u
     LEFT JOIN connections c 
       ON (c.connection1_id = u.user_id AND c.connection2_id = ?) OR (c.connection1_id = ? AND c.connection2_id = u.user_id)
     WHERE u.user_id != ?
+    GROUP BY u.user_id, u.name, u.headline
   `;
   
   dbConnection.query(query, [userId, userId, userId, userId], (err, results) => {
@@ -379,8 +381,7 @@ app.get('/api/connections/all', protectRoute, (req, res) => {
   });
 });
 
-// POST /api/connections/request - Send a connection request
-// *** FIXED for connections table ***
+// POST /api/connections/request
 app.post('/api/connections/request', protectRoute, (req, res) => {
   const requesterId = req.userId;
   const { receiverId } = req.body;
@@ -389,28 +390,26 @@ app.post('/api/connections/request', protectRoute, (req, res) => {
     return res.status(400).json({ error: 'Cannot connect with yourself.' });
   }
 
-  // We assume connection1_id is requester, connection2_id is receiver
-  // Added created_at column from your schema
+  // This query assumes your 'status' column is VARCHAR/TEXT
   const query = 'INSERT INTO connections (connection1_id, connection2_id, status, created_at) VALUES (?, ?, "pending", NOW())';
   
   dbConnection.query(query, [requesterId, receiverId], (err, results) => {
     if (err) {
       if (err.code === 'ER_DUP_ENTRY') {
-        return res.status(400).json({ error: 'Connection request already exists.' });
+        return res.status(201).json({ message: 'Connection request already exists or sent.' });
       }
+      console.error("Database error on /api/connections/request:", err);
       return res.status(500).json({ error: err.message });
     }
     res.status(201).json({ message: 'Connection request sent.' });
   });
 });
 
-// POST /api/connections/accept - Accept a connection request
-// *** FIXED for connections table ***
+// POST /api/connections/accept
 app.post('/api/connections/accept', protectRoute, (req, res) => {
   const receiverId = req.userId; // You are the receiver
   const { requesterId } = req.body; // The person who sent it
   
-  // We must find the request where connection1_id sent it AND connection2_id is you
   const query = 'UPDATE connections SET status = "accepted" WHERE connection1_id = ? AND connection2_id = ? AND status = "pending"';
   
   dbConnection.query(query, [requesterId, receiverId], (err, results) => {
@@ -421,11 +420,11 @@ app.post('/api/connections/accept', protectRoute, (req, res) => {
     res.json({ message: 'Connection accepted.' });
   });
 });
-
-
+// ...
 // --- MESSAGING ENDPOINTS ---
-
-// GET /api/messages/conversations - Get list of users the logged-in user has chatted with
+// (No changes to this section)
+// ...
+// GET /api/messages/conversations
 app.get('/api/messages/conversations', protectRoute, (req, res) => {
   const userId = req.userId;
   const query = `
@@ -460,10 +459,14 @@ app.get('/api/messages/conversations', protectRoute, (req, res) => {
   });
 });
 
-// GET /api/messages/:otherUserId - Get message history with a specific user
+// GET /api/messages/:otherUserId
 app.get('/api/messages/:otherUserId', protectRoute, (req, res) => {
   const userId = req.userId;
-  const otherUserId = req.params.otherUserId;
+  const otherUserId = parseInt(req.params.otherUserId);
+
+  if (isNaN(otherUserId)) {
+    return res.status(400).json({ error: 'Invalid user ID.' });
+  }
 
   const query = `
     SELECT message_id, content, content_sent_at, sender_id, receiver_id
@@ -481,7 +484,7 @@ app.get('/api/messages/:otherUserId', protectRoute, (req, res) => {
   });
 });
 
-// POST /api/messages - Send a new message
+// POST /api/messages
 app.post('/api/messages', protectRoute, (req, res) => {
   const senderId = req.userId;
   const { receiverId, content } = req.body;
@@ -506,8 +509,66 @@ app.post('/api/messages', protectRoute, (req, res) => {
     });
   });
 });
+// ...
+// --- JOB ENDPOINTS ---
+// *** THIS SECTION IS FULLY UPDATED ***
+
+// GET /api/jobs - Get all job listings
+app.get('/api/jobs', protectRoute, (req, res) => {
+  // Updated to select from your NEW 'jobs' table
+  const query = `
+    SELECT j.job_id, j.title, j.company, j.location, j.description, j.created_at, u.name as posted_by_name
+    FROM jobs j
+    JOIN users u ON j.posted_by = u.user_id
+    ORDER BY j.created_at DESC
+  `;
+  
+  dbConnection.query(query, (err, results) => {
+    if (err) {
+      console.error('Error fetching jobs:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    res.json(results);
+  });
+});
+
+// POST /api/jobs - Post a new job
+app.post('/api/jobs', protectRoute, (req, res) => {
+  const postedBy = req.userId;
+  // Get the user's description (employer status) from the token
+  const userDescription = req.user.description;
+
+  // 1. Enforce the business rule
+  // We check for '0' as a string, as it's a VARCHAR/TEXT field
+  if (userDescription !== '0') {
+    return res.status(403).json({ error: 'Access denied. Only employers (description=0) can post jobs.' });
+  }
+
+  // 2. Get data for the NEW 'jobs' table
+  const { title, company, location, description } = req.body;
+
+  if (!title || !company || !location || !description) {
+    return res.status(400).json({ error: 'Title, company, location, and description are required.' });
+  }
+
+  // 3. If user is authorized, insert the job
+  const query = `
+    INSERT INTO jobs (title, company, location, description, posted_by, created_at) 
+    VALUES (?, ?, ?, ?, ?, NOW())
+  `;
+  
+  dbConnection.query(query, [title, company, location, description, postedBy], (err, results) => {
+    if (err) {
+      console.error('Error posting job:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    res.status(201).json({ message: 'Job posted successfully!', jobId: results.insertId });
+  });
+});
+
 
 // --- 6. Start the Server ---
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
 });
+

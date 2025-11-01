@@ -18,11 +18,11 @@ function MessagingPage() {
   useEffect(() => {
     if (userId) {
       // Don't allow chatting with self
-      if (parseInt(userId) !== currentUser.userId) {
+      if (currentUser && parseInt(userId) !== currentUser.userId) {
         setSelectedUserId(parseInt(userId));
       }
     }
-  }, [userId, currentUser.userId]);
+  }, [userId, currentUser]);
 
   // Handle when a user is clicked in the sidebar
   const handleSelectConversation = (id) => {
@@ -58,3 +58,4 @@ function MessagingPage() {
 }
 
 export default MessagingPage;
+

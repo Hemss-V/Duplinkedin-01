@@ -7,24 +7,24 @@ function RegisterPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isEmployer, setIsEmployer] = useState(false); // For the checkbox
-  
+  const [description, setDescription] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   
   const navigate = useNavigate();
-  const { register, isAuthenticated } = useAuth();
+  const { register, isAuthenticated } = useAuth(); // Using register from context
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    const { success, error } = await register(name, email, password, isEmployer);
+    // Call the register function from AuthContext
+    const { success, error } = await register(name, email, password, description);
 
     setLoading(false);
     if (success) {
-      // After successful registration, forward to login
+      // On success, redirect to the login page
       navigate('/login'); 
     } else {
       setError(error || 'Failed to register. Please try again.');
@@ -40,7 +40,7 @@ function RegisterPage() {
     <div className="auth-container">
       <div className="auth-form">
         <form onSubmit={handleSubmit}>
-          <h1>Create Account</h1>
+          <h1>Create an Account</h1>
           
           {error && <p className="auth-error">{error}</p>}
           
@@ -54,6 +54,7 @@ function RegisterPage() {
               required
             />
           </div>
+
           <div className="form-group">
             <label htmlFor="email">Email</label>
             <input
@@ -64,6 +65,7 @@ function RegisterPage() {
               required
             />
           </div>
+
           <div className="form-group">
             <label htmlFor="password">Password</label>
             <input
@@ -74,19 +76,20 @@ function RegisterPage() {
               required
             />
           </div>
-          
-          <div className="form-group-checkbox">
-            <input
-              type="checkbox"
-              id="isEmployer"
-              checked={isEmployer}
-              onChange={(e) => setIsEmployer(e.target.checked)}
+
+          <div className="form-group">
+            <label htmlFor="description">Description (optional)</label>
+            <textarea
+              id="description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows="3"
+              style={{ width: '100%', padding: '0.75rem 1rem', fontSize: '1rem', border: '1px solid var(--border-color)', borderRadius: '6px', boxSizing: 'border-box' }}
             />
-            <label htmlFor="isEmployer">Register as an Employer</label>
           </div>
-          
+
           <button type="submit" disabled={loading}>
-            {loading ? 'Creating Account...' : 'Sign Up'}
+            {loading ? 'Registering...' : 'Register'}
           </button>
           
           <div className="auth-switch">

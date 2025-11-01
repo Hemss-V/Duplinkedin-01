@@ -85,3 +85,22 @@ export const getMessages = (otherUserId) => {
 export const sendMessage = (messageData) => {
   return apiClient.post('/messages', messageData);
 };
+
+// =================================================================
+// === SEARCH ENDPOINT (from previous step) ===
+// =================================================================
+export const searchUsers = (query) => {
+  return apiClient.get(`/search/users?q=${query}`);
+};
+
+// =================================================================
+// === JOB ENDPOINTS (UPDATED) ===
+// =================================================================
+export const getJobs = () => {
+  return apiClient.get('/jobs');
+};
+
+export const createJob = (jobData) => {
+  // jobData will contain { title, company, location, description }
+  return apiClient.post('/jobs', jobData);
+};
